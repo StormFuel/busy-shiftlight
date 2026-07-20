@@ -1,289 +1,204 @@
+using Busylight;
 using System;
-using System.Linq;
-using System.Reflection;
 
 namespace BusylightShiftLight
 {
     /// <summary>
-    /// Encapsulates the connection and control logic for the USB Busylight device.
-    /// Supports BusylightSDK.dll and HidSharp backends with graceful fallback.
+    /// Controls kuando Busylight hardware through Plenom's official SDK.
     /// </summary>
-    public class BusylightController : IDisposable
+    public sealed class BusylightController : IDisposable
     {
-        private object _device;
+        private readonly object _sync = new object();
+        private SDK _sdk;
         private bool _isConnected;
-        private string _deviceType = "None"; // Track which backend is in use
-        private bool _disposed = false;
+        private bool _disposed;
+        private DateTime _nextConnectionAttemptUtc = DateTime.MinValue;
 
-        /// <summary>
-        /// Attempts to connect to the Busylight device.
-        /// Supports both BusylightSDK.dll and HidSharp implementations.
-        /// Returns true if connection was successful, false otherwise.
-        /// </summary>
+        public bool IsConnected
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _isConnected;
+                }
+            }
+        }
+
         public bool Connect()
         {
-            try
+            lock (_sync)
             {
-                // Try to load BusylightSDK if available
-                _device = TryLoadBusylightSDK();
+                ThrowIfDisposed();
 
-                if (_device != null)
-                {
-                    _isConnected = true;
-                    _deviceType = "BusylightSDK";
-                    SimHub.Logging.Current.Info("Busylight connected via BusylightSDK");
-                    return true;
-                }
-
-                // Fallback: Initialize HidSharp connection if SDK is not available
-                _device = TryLoadHidSharp();
-                if (_device != null)
-                {
-                    _isConnected = true;
-                    _deviceType = "HidSharp";
-                    SimHub.Logging.Current.Info("Busylight connected via HidSharp");
-                    return true;
-                }
-
-                // No device found, continue in simulation mode
-                _isConnected = false;
-                _deviceType = "Simulation";
-                SimHub.Logging.Current.Warn("No Busylight device detected. Running in simulation mode.");
-                return false;
-            }
-            catch (Exception ex)
-            {
-                SimHub.Logging.Current.Error($"Error connecting to Busylight: {ex.Message}");
-                _isConnected = false;
-                _deviceType = "Simulation";
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Sets the LED color. RGB values range from 0 to 255.
-        /// </summary>
-        public void SetColor(byte r, byte g, byte b)
-        {
-            if (_disposed)
-            {
-                SimHub.Logging.Current.Error("Cannot set color: BusylightController has been disposed");
-                return;
-            }
-
-            if (!_isConnected || _device == null)
-                return;
-
-            try
-            {
-                if (_deviceType == "BusylightSDK")
-                {
-                    InvokeBusylightSDKLight(r, g, b);
-                }
-                else if (_deviceType == "HidSharp")
-                {
-                    // HidSharp implementation would be here
-                    SimHub.Logging.Current.Debug($"[Simulation] Busylight color set to RGB({r}, {g}, {b})");
-                }
-            }
-            catch (Exception ex)
-            {
-                SimHub.Logging.Current.Error($"Error setting Busylight color: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Turns off the LED (sets color to black).
-        /// </summary>
-        public void TurnOff()
-        {
-            SetColor(0, 0, 0);
-        }
-
-        /// <summary>
-        /// Disposes managed and unmanaged resources.
-        /// </summary>
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        /// <summary>
-        /// Protected dispose implementation.
-        /// </summary>
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-                return;
-
-            if (disposing)
-            {
                 try
                 {
-                    if (_device != null)
+                    if (_sdk == null)
                     {
-                        var disposable = _device as IDisposable;
-                        disposable?.Dispose();
+                        _sdk = new SDK();
+                        _sdk.OnBusylightChanged += OnBusylightChanged;
                     }
+
+                    _sdk.CheckUSB();
+                    RefreshConnectionState();
+                    _nextConnectionAttemptUtc = DateTime.UtcNow.AddSeconds(2);
+
+                    if (_isConnected)
+                    {
+                        _sdk.Light(0, 0, 0);
+                        SimHub.Logging.Current.Info("Busylight connected through the official Plenom SDK.");
+                    }
+
+                    return _isConnected;
                 }
                 catch (Exception ex)
                 {
-                    SimHub.Logging.Current.Error($"Error disposing Busylight device: {ex.Message}");
+                    _isConnected = false;
+                    SimHub.Logging.Current.Error($"Unable to initialize the Busylight SDK: {ex.Message}");
+                    return false;
                 }
             }
-
-            _device = null;
-            _isConnected = false;
-            _disposed = true;
         }
 
-        /// <summary>
-        /// Attempts to load and initialize the BusylightSDK.
-        /// </summary>
-        private object TryLoadBusylightSDK()
+        public bool SetColor(byte red, byte green, byte blue)
         {
-            try
+            lock (_sync)
             {
-                // Try assembly-qualified name first (requires BusylightSDK.dll in app directory or GAC)
-                var busylightType = Type.GetType("Busylight.SDK, BusylightSDK");
-                if (busylightType == null)
+                if (!EnsureConnected())
                 {
-                    busylightType = Type.GetType("Busylight.SDK");
+                    return false;
                 }
 
-                if (busylightType != null)
+                try
                 {
-                    var instance = Activator.CreateInstance(busylightType);
-                    if (instance != null)
-                    {
-                        SimHub.Logging.Current.Debug("BusylightSDK loaded successfully");
-                        return instance;
-                    }
+                    // Plenom's SDK uses the nonstandard parameter order red, blue, green.
+                    _sdk.Light(red, blue, green);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _isConnected = false;
+                    SimHub.Logging.Current.Error($"Unable to set Busylight color: {ex.Message}");
+                    return false;
                 }
             }
-            catch (Exception ex)
-            {
-                SimHub.Logging.Current.Debug($"BusylightSDK not available: {ex.Message}");
-            }
-
-            return null;
         }
 
-        /// <summary>
-        /// Attempts to initialize HidSharp connection to Busylight.
-        /// Busylight typically uses VID 0x27C6, PID varies by model.
-        /// </summary>
-        private object TryLoadHidSharp()
+        public bool TurnOff()
         {
-            try
+            lock (_sync)
             {
-                // Try to load HidSharp dynamically
-                var hidSharpAsm = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "HidSharp");
+                if (!EnsureConnected())
+                {
+                    return false;
+                }
 
-                if (hidSharpAsm == null)
+                try
+                {
+                    _sdk.Light(0, 0, 0);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _isConnected = false;
+                    SimHub.Logging.Current.Error($"Unable to turn off Busylight: {ex.Message}");
+                    return false;
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_sync)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                if (_sdk != null)
                 {
                     try
                     {
-                        hidSharpAsm = AppDomain.CurrentDomain.Load("HidSharp");
-                    }
-                    catch
-                    {
-                        SimHub.Logging.Current.Debug("HidSharp assembly not available");
-                        return null;
-                    }
-                }
-
-                // Get HidSharp.DeviceList type
-                var deviceListType = hidSharpAsm.GetType("HidSharp.DeviceList");
-                if (deviceListType == null)
-                {
-                    SimHub.Logging.Current.Debug("HidSharp.DeviceList type not found");
-                    return null;
-                }
-
-                // Get the local instance
-                var localProperty = deviceListType.GetProperty("Local", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
-                if (localProperty == null)
-                {
-                    SimHub.Logging.Current.Debug("HidSharp.DeviceList.Local property not found");
-                    return null;
-                }
-
-                var deviceList = localProperty.GetValue(null);
-                var getHidDevicesMethod = deviceListType.GetMethod("GetHidDevices");
-
-                if (getHidDevicesMethod != null && deviceList != null)
-                {
-                    var devices = getHidDevicesMethod.Invoke(deviceList, null) as System.Collections.IEnumerable;
-                    if (devices != null)
-                    {
-                        // Search for Busylight device (VID 0x27C6)
-                        foreach (var device in devices)
+                        _sdk.OnBusylightChanged -= OnBusylightChanged;
+                        if (_isConnected)
                         {
-                            var vidProperty = device.GetType().GetProperty("VendorID");
-                            if (vidProperty != null)
-                            {
-                                int vid = (int)vidProperty.GetValue(device);
-                                if (vid == 0x27C6) // Busylight VID
-                                {
-                                    SimHub.Logging.Current.Info("Found Busylight device via HidSharp");
-                                    return device; // Return the device object for potential later use
-                                }
-                            }
+                            _sdk.Light(0, 0, 0);
                         }
+
+                        _sdk.Terminate();
+                    }
+                    catch (Exception ex)
+                    {
+                        SimHub.Logging.Current.Error($"Unable to shut down the Busylight SDK cleanly: {ex.Message}");
                     }
                 }
 
-                SimHub.Logging.Current.Debug("No Busylight device found via HidSharp enumeration");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                SimHub.Logging.Current.Debug($"HidSharp initialization failed: {ex.Message}");
-                return null;
+                _sdk = null;
+                _isConnected = false;
+                _disposed = true;
             }
         }
 
-        /// <summary>
-        /// Safely invokes the BusylightSDK.Light method using reflection.
-        /// </summary>
-        private void InvokeBusylightSDKLight(byte r, byte g, byte b)
+        private bool EnsureConnected()
         {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            if (_isConnected)
+            {
+                return true;
+            }
+
+            if (_sdk == null)
+            {
+                return Connect();
+            }
+
+            if (DateTime.UtcNow < _nextConnectionAttemptUtc)
+            {
+                return false;
+            }
+
+            _nextConnectionAttemptUtc = DateTime.UtcNow.AddSeconds(2);
             try
             {
-                var deviceType = _device.GetType();
-                var lightMethod = deviceType.GetMethod("Light", 
-                    BindingFlags.Public | BindingFlags.Instance,
-                    null,
-                    new[] { typeof(byte), typeof(byte), typeof(byte) },
-                    null);
-
-                if (lightMethod != null)
-                {
-                    lightMethod.Invoke(_device, new object[] { r, g, b });
-                }
-                else
-                {
-                    SimHub.Logging.Current.Warn("BusylightSDK.Light method not found; trying alternative method names");
-                    // Try alternative method names
-                    var altMethods = deviceType.GetMethods();
-                    foreach (var method in altMethods)
-                    {
-                        if (method.Name.Equals("SetColor", StringComparison.OrdinalIgnoreCase) ||
-                            method.Name.Equals("SetLight", StringComparison.OrdinalIgnoreCase))
-                        {
-                            SimHub.Logging.Current.Debug($"Found alternative method: {method.Name}");
-                            method.Invoke(_device, new object[] { r, g, b });
-                            return;
-                        }
-                    }
-                }
+                _sdk.CheckUSB();
+                RefreshConnectionState();
             }
             catch (Exception ex)
             {
-                SimHub.Logging.Current.Error($"Failed to invoke BusylightSDK.Light: {ex.Message}");
+                _isConnected = false;
+                SimHub.Logging.Current.Debug($"Busylight reconnect attempt failed: {ex.Message}");
+            }
+
+            return _isConnected;
+        }
+
+        private void OnBusylightChanged()
+        {
+            lock (_sync)
+            {
+                if (!_disposed)
+                {
+                    RefreshConnectionState();
+                }
+            }
+        }
+
+        private void RefreshConnectionState()
+        {
+            IBusylightDevice[] devices = _sdk.GetAttachedBusylightDeviceList();
+            _isConnected = _sdk.IsLightSupported && devices != null && devices.Length > 0;
+        }
+
+        private void ThrowIfDisposed()
+        {
+            if (_disposed)
+            {
+                throw new ObjectDisposedException(nameof(BusylightController));
             }
         }
     }

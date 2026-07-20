@@ -14,7 +14,8 @@ busy_shiftlight/
 │   ├── BusylightShiftLight.csproj # Project file
 │   ├── Properties/
 │   │   └── AssemblyInfo.cs
-│   ├── packages.config
+│   ├── ShiftLightLogic.cs
+│   ├── Tests/
 │   └── README.md                  # Plugin documentation
 │
 ├── python_original/               # Reference implementation (ARCHIVED)
@@ -75,8 +76,8 @@ All settings are managed via SimHub's WPF settings panel:
 
 - **.NET Framework 4.8** (SimHub requirement)
 - **SimHub.Plugins.dll** (from SimHub installation)
-- **SimHub.Plugins.WPF.dll** (optional, for UI)
-- **BusylightSDK.dll** or **HidSharp** (for USB device communication)
+- **GameReaderCommon.dll** and **SimHub.Logging.dll**
+- **BusylightSDK.dll** from the official Plenom SDK package
 
 ## 🐍 Python Reference
 
@@ -89,14 +90,15 @@ See [python_original/README.md](python_original/README.md) for details.
 | Component | Responsibility |
 |-----------|-----------------|
 | **BusylightPlugin** | Telemetry processing, state machine, SimHub integration |
-| **BusylightController** | USB device abstraction (SDK or HidSharp) |
+| **BusylightController** | Official Plenom SDK adapter with reconnect handling |
 | **PluginSettings** | Configuration persistence & WPF data binding |
 | **SettingsView** | WPF user interface for settings adjustment |
 
 ## 📝 License & Attribution
 
-**Original Python Author**: Antigravity  
-**C# Port**: Converted from Python specification  
+**Plugin Author**: StormFuel
+
+**Implementation**: Native C# SimHub plugin
 
 ## 🐛 Troubleshooting
 

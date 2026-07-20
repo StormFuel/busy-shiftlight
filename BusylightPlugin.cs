@@ -1,8 +1,11 @@
 using SimHub.Plugins;
 using GameReaderCommon;
 using System;
+using System.IO;
+using System.Reflection;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace BusylightShiftLight
 {
@@ -11,17 +14,14 @@ namespace BusylightShiftLight
     /// Implements IDataPlugin for telemetry hooks and IWPFSettingsV2 for UI integration.
     /// </summary>
     [PluginDescription("Controls a physical Busylight device as an adaptive racing shift light.")]
-    [PluginAuthor("Antigravity")]
+    [PluginAuthor("StormFuel")]
     [PluginName("Busylight Shift Indicator")]
     public class BusylightPlugin : IDataPlugin, IWPFSettingsV2
     {
         private BusylightController _lightController;
         private PluginSettings _settings;
 
-        // State Tracking variables
-        private string _lastState = "OFF";
-        private bool _flashOn = false;
-        private DateTime _lastFlashTime = DateTime.MinValue;
+        private readonly ShiftLightStateMachine _stateMachine = new ShiftLightStateMachine();
 
         /// <summary>
         /// Plugin manager instance, set by SimHub via IPlugin.
@@ -70,65 +70,31 @@ namespace BusylightShiftLight
                 // If game is not running or no data available, turn off light
                 if (data == null || !data.GameRunning || data.NewData == null)
                 {
-                    SetLightState("OFF");
+                    ApplyLightState(ShiftLightState.Off);
                     return;
                 }
 
-                // 1. Check for suppression conditions: Pit Limiter, Neutral, Reverse, Gear 0
-                // Real SimHub API: PitLimiterOn is int, Gear is string
-                bool isPitLimiterOn = data.NewData.PitLimiterOn > 0;
+                double shiftRpm = ShiftLightEvaluator.SelectShiftRpm(
+                    data.NewData.CarSettings_CurrentGearRedLineRPM,
+                    data.NewData.CarSettings_RedLineRPM,
+                    data.NewData.CarSettings_RPMShiftLight1,
+                    data.NewData.CarSettings_MaxRPM);
 
-                string gear = data.NewData.Gear ?? "";
-                bool isNeutral = gear.Equals("N", StringComparison.OrdinalIgnoreCase);
-                bool isReverse = gear.Equals("R", StringComparison.OrdinalIgnoreCase);
-                bool isGear0 = gear.Equals("0", StringComparison.OrdinalIgnoreCase);
+                ShiftLightState targetState = ShiftLightEvaluator.Evaluate(
+                    data.GameRunning,
+                    data.NewData.PitLimiterOn,
+                    data.NewData.Gear,
+                    data.NewData.Rpms,
+                    data.NewData.CarSettings_MaxRPM,
+                    shiftRpm,
+                    _settings);
 
-                if (isPitLimiterOn || isNeutral || isReverse || isGear0)
-                {
-                    SetLightState("OFF");
-                    return;
-                }
-
-                // 2. Fetch and validate RPM thresholds
-                double rpms = data.NewData.Rpms;
-                double maxRpm = data.NewData.CarSettings_MaxRPM;
-                // Real API uses CarSettings_RPMShiftLight1 (not CarSettings_ShiftLightRPM)
-                double shiftRpm = data.NewData.CarSettings_RPMShiftLight1;
-
-                // Apply fallback shift RPM if not provided
-                if (shiftRpm <= 0)
-                {
-                    if (maxRpm > 0)
-                    {
-                        shiftRpm = maxRpm * _settings.FallbackShiftRpmPercent;
-                    }
-                    else
-                    {
-                        SetLightState("OFF");
-                        return;
-                    }
-                }
-
-                double yellowThreshold = shiftRpm * _settings.YellowThresholdPercent;
-
-                // 3. Determine and apply state based on RPM thresholds
-                if (rpms >= shiftRpm)
-                {
-                    SetLightState("FLASH_RED");
-                }
-                else if (rpms >= yellowThreshold)
-                {
-                    SetLightState("YELLOW");
-                }
-                else
-                {
-                    SetLightState("OFF");
-                }
+                ApplyLightState(targetState);
             }
             catch (Exception ex)
             {
                 SimHub.Logging.Current.Error($"Error in DataUpdate: {ex.Message}");
-                SetLightState("OFF");
+                ApplyLightState(ShiftLightState.Off);
             }
         }
 
@@ -161,71 +127,49 @@ namespace BusylightShiftLight
         /// <summary>
         /// Manages state transitions and applies light effects.
         /// </summary>
-        private void SetLightState(string targetState)
+        private void ApplyLightState(ShiftLightState targetState)
         {
-            if (targetState == "OFF")
-            {
-                if (_lastState != "OFF")
-                {
-                    _lightController.TurnOff();
-                    _lastState = "OFF";
-                }
-            }
-            else if (targetState == "YELLOW")
-            {
-                if (_lastState != "YELLOW")
-                {
-                    var color = ConvertHexToRGB(_settings.YellowHexColor);
-                    _lightController.SetColor(color.R, color.G, color.B);
-                    _lastState = "YELLOW";
-                }
-            }
-            else if (targetState == "FLASH_RED")
-            {
-                var now = DateTime.UtcNow;
-                var elapsedMs = (now - _lastFlashTime).TotalMilliseconds;
+            LightCommand command = _stateMachine.Update(targetState, _settings, DateTime.UtcNow);
+            bool applied = true;
 
-                if (_lastState != "FLASH_RED" || elapsedMs >= _settings.FlashIntervalMs)
-                {
-                    _flashOn = (_lastState == "FLASH_RED") ? !_flashOn : true;
-                    _lastFlashTime = now;
-                    _lastState = "FLASH_RED";
+            if (command.Type == LightCommandType.Off)
+            {
+                applied = _lightController != null && _lightController.TurnOff();
+            }
+            else if (command.Type == LightCommandType.Color)
+            {
+                applied = _lightController != null && _lightController.SetColor(command.Red, command.Green, command.Blue);
+            }
 
-                    if (_flashOn)
-                    {
-                        var color = ConvertHexToRGB(_settings.RedHexColor);
-                        _lightController.SetColor(color.R, color.G, color.B);
-                    }
-                    else
-                    {
-                        _lightController.TurnOff();
-                    }
-                }
+            if (!applied)
+            {
+                _stateMachine.Reset();
             }
         }
 
-        /// <summary>
-        /// Converts a hex color string (#RRGGBB) to RGB byte tuple.
-        /// </summary>
-        private (byte R, byte G, byte B) ConvertHexToRGB(string hex)
+        private static readonly ImageSource PluginIcon = LoadPluginIcon();
+
+        private static ImageSource LoadPluginIcon()
         {
-            try
+            using (Stream stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("BusylightShiftLight.Assets.BusylightPluginIcon.png"))
             {
-                hex = hex.Replace("#", "");
-                byte r = Convert.ToByte(hex.Substring(0, 2), 16);
-                byte g = Convert.ToByte(hex.Substring(2, 2), 16);
-                byte b = Convert.ToByte(hex.Substring(4, 2), 16);
-                return (r, g, b);
-            }
-            catch
-            {
-                return (255, 255, 255); // Fallback to white if hex is invalid
+                if (stream == null)
+                {
+                    return null;
+                }
+
+                var icon = new BitmapImage();
+                icon.BeginInit();
+                icon.CacheOption = BitmapCacheOption.OnLoad;
+                icon.StreamSource = stream;
+                icon.EndInit();
+                icon.Freeze();
+                return icon;
             }
         }
 
-        // Implement IWPFSettingsV2
-        // Real API uses PictureIcon, not PluginIcon
-        public ImageSource PictureIcon => null;
+        public ImageSource PictureIcon => PluginIcon;
         public string LeftMenuTitle => "Busylight";
     }
 }

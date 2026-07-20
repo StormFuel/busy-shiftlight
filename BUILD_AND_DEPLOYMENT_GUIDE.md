@@ -32,31 +32,9 @@ Should return `True`. If not, update the path in Step 2.
 
 ### 2.1 Open the project file
 
-Edit `BusylightShiftLight/BusylightShiftLight.csproj` and locate the commented references section:
+The SimHub references are already enabled in `BusylightShiftLight.csproj`. If SimHub is installed in a different location, update their `HintPath` values. The official Plenom SDK is restored through the pinned `com.plenom.BusylightSDK` package reference.
 
-```xml
-<!-- Add references to SimHub DLLs from your local SimHub installation -->
-<!-- Uncomment and adjust path as needed for your SimHub installation -->
-<!-- <Reference Include="SimHub.Plugins">
-  <HintPath>C:\Program Files (x86)\SimHub\SimHub.Plugins.dll</HintPath>
-</Reference>
-<Reference Include="SimHub.Plugins.WPF">
-  <HintPath>C:\Program Files (x86)\SimHub\SimHub.Plugins.WPF.dll</HintPath>
-</Reference> -->
-```
-
-### 2.2 Uncomment and verify paths
-
-Remove the `<!-- -->` comment markers so it reads:
-
-```xml
-<Reference Include="SimHub.Plugins">
-  <HintPath>C:\Program Files (x86)\SimHub\SimHub.Plugins.dll</HintPath>
-</Reference>
-<Reference Include="SimHub.Plugins.WPF">
-  <HintPath>C:\Program Files (x86)\SimHub\SimHub.Plugins.WPF.dll</HintPath>
-</Reference>
-```
+### 2.2 Verify paths
 
 If SimHub is installed in a different location, update the `HintPath` values.
 
@@ -72,7 +50,7 @@ If SimHub is installed in a different location, update the `HintPath` values.
 
 - Right-click project → **Properties**
 - Go to **References** tab
-- Verify `SimHub.Plugins` and `SimHub.Plugins.WPF` appear without warnings
+- Verify `SimHub.Plugins`, `GameReaderCommon`, `SimHub.Logging`, and `BusylightSDK` appear without warnings
 
 ### 3.3 Build in Release mode
 
@@ -95,25 +73,9 @@ Build output will be at:
 BusylightShiftLight\bin\Release\BusylightShiftLight.dll
 ```
 
-## Step 4: Optional - Install USB Device Support
+## Step 4: Run Tests
 
-Choose one method:
-
-### Option A: BusylightSDK (Recommended)
-
-1. Download BusylightSDK from the vendor
-2. Copy `BusylightSDK.dll` to `BusylightShiftLight\bin\Release\`
-3. The plugin will auto-detect at runtime
-
-### Option B: HidSharp (NuGet)
-
-1. In Visual Studio, go to **Tools → NuGet Package Manager → Package Manager Console**
-2. Run:
-   ```
-   Install-Package HidSharp -Version 2.1.0
-   ```
-3. Uncomment in `packages.config`
-4. Rebuild the project
+Build and run `Tests\BusylightShiftLight.Tests.csproj` for the telemetry and flash-state assertions. With hardware attached, build and run `Tests\BusylightShiftLight.HardwareSmoke.csproj`; it sends yellow, red, and off commands through the official SDK.
 
 ## Step 5: Deploy to SimHub
 
@@ -127,12 +89,12 @@ $dest = "C:\Program Files (x86)\SimHub\"
 Copy-Item -Path $source -Destination $dest -Force
 ```
 
-### 5.2 Copy optional dependencies
+### 5.2 Copy the required SDK dependency
 
-If using BusylightSDK or HidSharp:
+`BusylightSDK.dll` is required alongside the plugin DLL:
 
 ```powershell
-$deps = @("BusylightSDK.dll", "HidSharp.dll")
+$deps = @("BusylightSDK.dll")
 foreach ($dep in $deps) {
     $src = "BusylightShiftLight\bin\Release\$dep"
     if (Test-Path $src) {
@@ -251,7 +213,6 @@ Both indicate successful plugin initialization.
 Remove-Item "C:\Program Files (x86)\SimHub\BusylightShiftLight.dll" -Force
 
 # Optionally remove dependencies
-Remove-Item "C:\Program Files (x86)\SimHub\HidSharp.dll" -Force -ErrorAction SilentlyContinue
 Remove-Item "C:\Program Files (x86)\SimHub\BusylightSDK.dll" -Force -ErrorAction SilentlyContinue
 
 # Restart SimHub

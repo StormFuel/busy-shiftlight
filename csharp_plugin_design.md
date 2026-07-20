@@ -119,7 +119,7 @@ using System;
 using System.Windows.Controls;
 
 [PluginDescription("Controls a physical Busylight device as an adaptive racing shift light.")]
-[PluginAuthor("Antigravity")]
+[PluginAuthor("StormFuel")]
 [PluginName("Busylight Shift Indicator")]
 public class BusylightPlugin : IDataPlugin, IWPFSettingsV2
 {

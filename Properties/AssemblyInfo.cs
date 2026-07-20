@@ -8,9 +8,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyTitle("BusylightShiftLight")]
 [assembly: AssemblyDescription("SimHub Busylight Shift Light Plugin - Controls a physical Busylight device as an adaptive racing shift light")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("Antigravity")]
+[assembly: AssemblyCompany("StormFuel")]
 [assembly: AssemblyProduct("BusylightShiftLight")]
-[assembly: AssemblyCopyright("Copyright © 2024")]
+[assembly: AssemblyCopyright("Copyright © 2026 StormFuel")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

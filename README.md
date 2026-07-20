@@ -4,6 +4,12 @@ A native C# SimHub plugin that controls a physical USB Busylight device as an ad
 
 Built from the Python reference implementation, this C# version runs directly inside SimHub for zero-latency telemetry processing.
 
+## Download and Install
+
+Download the versioned ZIP from this repository's **Releases** page. The archive contains the compiled plugin, its MIT license, and installation instructions. See [INSTALL.md](INSTALL.md) for the complete procedure and the required official Plenom SDK runtime.
+
+The repository also contains a checked-in release archive under `release/` so a usable build remains available with the source.
+
 ## Features
 
 * **Zero-Latency Processing**: Runs inside SimHub's telemetry loop for instant responsiveness
@@ -14,7 +20,7 @@ Built from the Python reference implementation, this C# version runs directly in
   - **Red Flashing**: RPM at or above shift point (10Hz flash, 50ms toggle)
 * **Smart Suppression**: Light turns off in Neutral, Reverse, or when pit lane limiter is active
 * **Configurable Settings**: Adjust thresholds, colors, and flash frequency via SimHub's built-in GUI
-* **Device Fallback**: Works in simulation mode if no Busylight device is detected
+* **Hot-plug Recovery**: Retries device discovery when a Busylight is disconnected or connected later
 
 ## Project Structure
 
@@ -25,9 +31,10 @@ BusylightShiftLight/
 ├── PluginSettings.cs           # Configuration model (auto-serialized by SimHub)
 ├── SettingsView.xaml           # WPF configuration panel UI
 ├── SettingsView.xaml.cs        # UI code-behind
+├── ShiftLightLogic.cs          # Testable telemetry and flashing state machine
+├── Tests/                      # Logic tests and physical-device smoke test
 ├── BusylightShiftLight.csproj  # Project file (.NET Framework 4.8)
 ├── Properties/AssemblyInfo.cs  # Assembly metadata
-└── packages.config             # NuGet dependencies
 ```
 
 ## Building the Plugin
@@ -40,21 +47,11 @@ BusylightShiftLight/
 
 ### Steps
 
-1. Open `BusylightShiftLight.csproj` in Visual Studio
-2. Uncomment the SimHub DLL references in the `.csproj` file and update the paths if needed:
-   ```xml
-   <Reference Include="SimHub.Plugins">
-     <HintPath>C:\Program Files (x86)\SimHub\SimHub.Plugins.dll</HintPath>
-   </Reference>
-   <Reference Include="SimHub.Plugins.WPF">
-     <HintPath>C:\Program Files (x86)\SimHub\SimHub.Plugins.WPF.dll</HintPath>
-   </Reference>
-   ```
-3. (Optional) Install HidSharp if you don't have the BusylightSDK:
-   ```
-   Install-Package HidSharp -Version 2.1.0
-   ```
-4. Build in **Release** mode: `Ctrl+Shift+B`
+1. Verify the SimHub reference paths in `BusylightShiftLight.csproj` if SimHub is installed elsewhere.
+2. Open `BusylightShiftLight.csproj` in Visual Studio and allow NuGet restore to complete.
+3. Build in **Release** mode with Visual Studio/MSBuild. The project uses the official Plenom Busylight SDK package.
+
+The project follows SimHub's SDK convention by reading the `SIMHUB_INSTALL_PATH` environment variable for host assembly references, with `C:\Program Files (x86)\SimHub\` as a fallback.
 
 ### Output
 
@@ -63,21 +60,17 @@ The compiled DLL will be located at:
 BusylightShiftLight/bin/Release/BusylightShiftLight.dll
 ```
 
+To build, test, and create a versioned release archive:
+
+```powershell
+.\scripts\package-release.ps1 -Version 1.0.0
+```
+
 ## Installation in SimHub
 
-1. Copy `BusylightShiftLight.dll` to your SimHub root directory:
-   ```
-   C:\Program Files (x86)\SimHub\
-   ```
-   
-   Optionally copy any dependency DLLs (e.g., `HidSharp.dll` or `BusylightSDK.dll`) to the same folder
+Follow [INSTALL.md](INSTALL.md). In short: close SimHub, copy the release DLL and the official `BusylightSDK.dll` runtime into the SimHub installation directory, restart SimHub, and enable **Busylight Shift Indicator** in the plugin list.
 
-2. Restart SimHub or reload plugins:
-   - Go to **Settings** → **Plugins**
-   - Find "Busylight Shift Indicator" in the list
-   - Toggle **Enabled** to activate
-
-3. The plugin's settings panel will appear in SimHub's left sidebar
+The Plenom runtime is not redistributed in this repository because it has its own license. Users obtain it directly from the official NuGet package linked in the installation guide.
 
 ## Configuration
 
@@ -95,17 +88,7 @@ Settings are saved automatically when changed and persist across SimHub restarts
 
 ## USB Device Support
 
-The plugin supports two methods for connecting to the Busylight:
-
-### Option 1: BusylightSDK (Recommended)
-- Download the official SDK from the Busylight vendor
-- Copy `BusylightSDK.dll` to the plugin folder
-- The plugin will auto-detect and use it
-
-### Option 2: HidSharp
-- Install via NuGet: `Install-Package HidSharp`
-- Uncomment in `packages.config`
-- The plugin includes fallback logic to use HidSharp if SDK is unavailable
+The plugin uses Plenom's official `com.plenom.BusylightSDK` package. The SDK discovers supported kuando hardware, sends RGB commands, and reports device connection changes. Both `BusylightShiftLight.dll` and `BusylightSDK.dll` are required at deployment.
 
 ## Troubleshooting
 
@@ -118,7 +101,7 @@ The plugin supports two methods for connecting to the Busylight:
 - Verify the USB device is connected
 - Try different USB ports
 - Check SimHub's log: "Busylight connected successfully" should appear on startup
-- If not detected, the plugin will run in simulation mode with console feedback
+- If not detected, the plugin remains active and retries discovery when an output command is needed
 
 ### Settings not saving
 - Ensure you have write permissions to the SimHub folder
@@ -135,7 +118,7 @@ The plugin architecture is split into three concerns:
 
 2. **BusylightController** (Hardware Abstraction)
    - Encapsulates device connection logic
-   - Supports both BusylightSDK and HidSharp
+   - Uses the official Plenom Busylight SDK and handles reconnects
    - Gracefully handles device disconnection
 
 3. **PluginSettings** (Configuration Model)
@@ -148,7 +131,7 @@ The plugin architecture is split into three concerns:
 - [SimHub Plugin Development](https://wiki.simhubdash.com/)
 - [SimHub GitHub Examples](https://github.com/zesinger/SimHub)
 - [BusylightSDK Documentation](https://www.busylight.com/)
-- [HidSharp GitHub](https://github.com/jcurl/RJCP.DLL.SerialPortStream)
+- [Official Plenom Busylight SDK package](https://www.nuget.org/packages/com.plenom.BusylightSDK)
 
 ---
 

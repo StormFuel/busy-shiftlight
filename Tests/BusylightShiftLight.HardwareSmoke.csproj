@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{36140FE4-91CA-4D3E-80BD-AF1638A9855B}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>BusylightShiftLight.HardwareSmoke</RootNamespace>
+    <AssemblyName>BusylightShiftLight.HardwareSmoke</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <OutputPath>bin\HardwareSmoke\$(Configuration)\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="SimHub.Logging">
+      <HintPath>C:\Program Files (x86)\SimHub\SimHub.Logging.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="log4net">
+      <HintPath>C:\Program Files (x86)\SimHub\log4net.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="SimHub.Plugins">
+      <HintPath>C:\Program Files (x86)\SimHub\SimHub.Plugins.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="GameReaderCommon">
+      <HintPath>C:\Program Files (x86)\SimHub\GameReaderCommon.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="HardwareSmokeProgram.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\BusylightShiftLight.csproj">
+      <Project>{A7F3B8D2-4E9C-4F1A-8C2B-5D6E7F8A9B0C}</Project>
+      <Name>BusylightShiftLight</Name>
+      <Private>True</Private>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
