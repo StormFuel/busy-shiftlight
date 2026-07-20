@@ -10,6 +10,14 @@ Download the versioned ZIP from this repository's **Releases** page. The archive
 
 The repository also contains a checked-in release archive under `release/` so a usable build remains available with the source.
 
+## Tested Hardware
+
+This plugin was developed and physically tested with the **PLENOM kuando Busylight Omega (USB)**. The hardware smoke test successfully detected the device and exercised its color and off states through the official Busylight SDK.
+
+[Buy the kuando Busylight Omega on Amazon](https://amzn.to/4vDUzso)
+
+**Affiliate disclosure:** The Amazon link above is an affiliate link. I receive a small commission from qualifying purchases made through it, at no additional cost to you.
+
 ## Features
 
 * **Zero-Latency Processing**: Runs inside SimHub's telemetry loop for instant responsiveness
